@@ -9,6 +9,7 @@ from numba import jit
 
 L = 1
 T = 2
+INF = int(1e10)
 
 @jit(nopython=True)
 def ub_cases(a, b, mode):
@@ -45,8 +46,8 @@ def awarp_(D, s, t):
 
 def awarp(s, t, return_matrix=False):
     D = np.zeros((s.shape[0] + 1, t.shape[0] + 1)).astype('int')
-    D[:,0] = int(1e10)
-    D[0,:] = int(1e10)
+    D[:,0] = int(INF)
+    D[0,:] = int(INF)
     D[0,0] = 0
     awarp_(D, s, t)
     if return_matrix:
