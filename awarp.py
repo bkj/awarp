@@ -50,8 +50,5 @@ def awarp(s, t, return_matrix=False):
     D[0,:] = int(INF)
     D[0,0] = 0
     awarp_(D, s, t)
-    if return_matrix:
-        return D[1:,1:]
-    else:
-        return D[-1,-1]
-    
+    return D[1:,1:] if return_matrix else D[-1,-1]
+
