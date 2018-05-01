@@ -21,7 +21,7 @@ def ub_cases(a, b, mode):
         else:
             return -b * (a ** 2)
     elif (a < 0) and (b > 0):
-        if mode  == T:
+        if mode == T:
             return b ** 2
         else:
             return -a * (b ** 2)
