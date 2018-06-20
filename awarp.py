@@ -5,13 +5,38 @@
 """
 
 import numpy as np
-from numba import jit
+import numba
+
+# --
+# Helpers
+
+def to_dense(x):
+    out = []
+    for i in range(len(x)):
+        if x[i] > 0:
+            out.append(1)
+        else:
+            out += [0] * abs(x[i])
+    
+    return np.array(out)
+
+def run_encode(x, v=None):
+    out = np.ones(2 * len(x) - 1, dtype=np.int)
+    out[1::2] = -(np.diff(x) - 1)
+    if v is not None:
+        out[0::2] = v
+    return out
+
+
+# --
+# Unconstrained
 
 L = 1
 T = 2
-INF = int(2 ** 64 - 1)
+INF = int(1e10)
 
-@jit(nopython=True)
+ZERO_PENALTY = 0
+@numba.jit(nopython=True)
 def ub_cases(a, b, mode):
     if (a > 0) and (b > 0):
         return (a - b) ** 2
@@ -26,9 +51,10 @@ def ub_cases(a, b, mode):
         else:
             return -a * (b ** 2)
     else:
-        return 0
+        return ZERO_PENALTY * abs(a - b)
 
-@jit(nopython=True)
+
+@numba.jit(nopython=True)
 def awarp_(D, s, t):
     for i in range(s.shape[0]):
         for j in range(t.shape[0]):
@@ -43,22 +69,16 @@ def awarp_(D, s, t):
             
             D[i+1, j+1] = min(a_d, a_t, a_l)
 
-def awarp(s, t, return_matrix=False):
-    D = np.zeros((s.shape[0] + 1, t.shape[0] + 1)).astype('int')
-    D[:,0] = int(INF)
-    D[0,:] = int(INF)
-    D[0,0] = 0
-    awarp_(D, s, t)
-    return D[1:,1:] if return_matrix else D[-1,-1]
 
 # --
+# Constrained
 
-@jit(nopython=True)
+@numba.jit(nopython=True)
 def compute_t(x):
     xt = np.zeros(x.shape[0] + 1, dtype=numba.int32)
     
     idx = 0
-    for i in range(s.shape[0]):
+    for i in range(x.shape[0]):
         if x[i] > 0:
             idx += 1
         else:
@@ -69,7 +89,8 @@ def compute_t(x):
     xt[-1] = idx + 1
     return xt
 
-@jit(nopython=True)
+
+@numba.jit(nopython=True)
 def constrained_awarp_(D, s, t, w):
     st = compute_t(s)
     tt = compute_t(t)
@@ -77,12 +98,10 @@ def constrained_awarp_(D, s, t, w):
     for i in range(s.shape[0]):
         for j in range(t.shape[0]):
             
-            gap = abs(st[i] - tt[j])
-            if (
-                (gap > w) and 
-                ((j > 0) and (tt[j - 1] - st[i] > w)) and 
-                ((i > 0) and (st[i - 1] - tt[j] > w))
-            ):
+            too_far = abs(st[i] - tt[j]) > w
+            jcond   = (j > 0) and (tt[j - 1] - st[i] > w)
+            icond   = (i > 0) and (st[i - 1] - tt[j] > w)
+            if too_far and (jcond or icond):
                 D[i+1, j+1] = INF
             else:
                 
@@ -96,33 +115,31 @@ def constrained_awarp_(D, s, t, w):
                 
                 D[i+1, j+1] = min(a_d, a_t, a_l)
 
+# --
+# Wrapper
 
-def constrained_awarp(s, t, w, return_matrix=False):
-    D = np.zeros((s.shape[0] + 1, t.shape[0] + 1)).astype('int')
+def awarp(s, t, w=None, return_matrix=False, preencode=True):
+    if preencode:
+        s = run_encode(s)
+        t = run_encode(t)
+    
+    # assert s[0] == 1, "s[0] != 1"
+    # assert t[0] == 1, "t[0] != 1"
+    
+    D = np.zeros((s.shape[0] + 1, t.shape[0] + 1)).astype(int)
     D[:,0] = INF
     D[0,:] = INF
     D[0,0] = 0
-    constrained_awarp_(D, s, t, w)
-    return D[1:,1:] if return_matrix else D[-1,-1]
-
-
-s = np.random.choice((-3, 1), 100)
-t = np.random.choice((-3, 1), 100)
-awarp(s, t)
-# constrained_awarp(s, t, w=1000, return_matrix=True)
-
-
-def to_dense(x):
-    out = []
-    for i in range(len(x)):
-        if x[i] > 0:
-            out.append(1)
-        else:
-            out += [0] * abs(x[i])
     
-    return out
-
-ds = to_dense(s)
-dt = to_dense(t)
-
-fastdtw.dtw(ds, dt)[0]
+    if w is None:
+        awarp_(D, s, t)
+    else:
+        constrained_awarp_(D, s, t, w)
+    
+    if return_matrix:
+        D = D[1:,1:].astype('float')
+        D[D == INF] = np.inf
+        return D
+    else:
+        d = D[-1,-1]
+        return d if d != INF else np.inf
